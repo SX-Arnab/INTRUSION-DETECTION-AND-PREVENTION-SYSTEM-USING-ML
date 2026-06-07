@@ -14,4 +14,4 @@ Scalable architecture for personal, startup, and enterprise deployments
 
 Contributors:
 -> Arnab Chaudhary
--> Uchit Joshi
+, Uchit Joshi

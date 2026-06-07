@@ -10,3 +10,8 @@ Anomaly and behavioral threat detection
 Automated intrusion prevention
 Support for multiple attack categories from CSE-CIC-IDS2018
 Scalable architecture for personal, startup, and enterprise deployments
+
+
+Contributors:
+-> Arnab Chaudhary
+-> Uchit Joshi

@@ -1,27 +1,4 @@
-# ==============================================================================
-# main.py  —  IDS/IPS SYSTEM LAUNCHER  (Windows Native)
-# ==============================================================================
-# Launches sniffer.py, parser.py, and engine.py as separate subprocesses,
-# streams their combined output into one terminal with colour-coded prefixes,
-# monitors for unexpected crashes, and shuts everything down cleanly on Ctrl+C.
-#
-# Run from an ADMINISTRATOR command prompt:
-#   python main.py
-#
-# FIXES APPLIED
-#   - Prerequisite check now also verifies Python packages (scapy, sklearn,
-#     xgboost, pandas, numpy) and prints install instructions if missing.
-#   - Stagger delay increased to 2 s to give sniffer time to bind Npcap.
-#   - Output streamer catches BrokenPipeError (child exited mid-line) cleanly.
-#   - _shutdown() now checks _shutdown_flag before printing duplicate messages.
-#   - Added dashboard URL reminder after "System is LIVE" message.
-#   - Child processes receive SIGTERM via proc.terminate(); if they don't
-#     stop within SHUTDOWN_GRACE, proc.kill() is called. Windows does not
-#     deliver SIGTERM to Python subprocesses — we use proc.send_signal(CTRL_C)
-#     first (which maps to GenerateConsoleCtrlEvent) then fall back to kill().
-#   - Monitor now prints the last few lines of a crashed child's output so
-#     the operator can see the error without hunting through logs.
-# ==============================================================================
+
 
 import ctypes
 import os
@@ -32,9 +9,7 @@ import threading
 import time
 from datetime import datetime
 
-# ---------------------------------------------------------------------------
-# ANSI colour support
-# ---------------------------------------------------------------------------
+
 def _enable_ansi():
     try:
         kernel32 = ctypes.windll.kernel32
@@ -53,9 +28,7 @@ DIM     = "\033[2m"
 BOLD    = "\033[1m"
 RESET   = "\033[0m"
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+
 SCRIPTS = [
     "sniffer.py",
     "parser.py",
@@ -91,9 +64,7 @@ _registry: list = []
 _shutdown_flag  = threading.Event()
 
 
-# ---------------------------------------------------------------------------
-# Utilities
-# ---------------------------------------------------------------------------
+
 def _ts() -> str:
     return datetime.now().strftime("%H:%M:%S")
 
@@ -109,9 +80,6 @@ def _banner():
     print(f"{BOLD}{'=' * width}{RESET}\n")
 
 
-# ---------------------------------------------------------------------------
-# Administrator check
-# ---------------------------------------------------------------------------
 def _check_admin():
     try:
         is_admin = ctypes.windll.shell32.IsUserAnAdmin()
@@ -130,9 +98,6 @@ def _check_admin():
         _print("Administrator privileges confirmed.", GREEN)
 
 
-# ---------------------------------------------------------------------------
-# Prerequisites check (files + packages)
-# ---------------------------------------------------------------------------
 def _check_prerequisites():
     _print("Checking file prerequisites...", DIM)
     missing_files = [f for f in REQUIRED_FILES if not os.path.exists(f)]
@@ -173,9 +138,7 @@ def _check_prerequisites():
     print()
 
 
-# ---------------------------------------------------------------------------
-# Output streamer
-# ---------------------------------------------------------------------------
+
 def _stream_output(proc: subprocess.Popen, colour: str):
     try:
         for raw_line in iter(proc.stdout.readline, b""):
@@ -188,9 +151,7 @@ def _stream_output(proc: subprocess.Popen, colour: str):
         pass  # Child exited cleanly during shutdown
 
 
-# ---------------------------------------------------------------------------
-# Launch a single script
-# ---------------------------------------------------------------------------
+
 def _launch(script: str, env=None) -> dict:
     colour = SCRIPT_COLOURS.get(script, RESET)
 
@@ -213,9 +174,7 @@ def _launch(script: str, env=None) -> dict:
     return {"script": script, "proc": proc, "thread": thread, "colour": colour}
 
 
-# ---------------------------------------------------------------------------
-# Health monitor
-# ---------------------------------------------------------------------------
+
 def _monitor():
     while not _shutdown_flag.is_set():
         time.sleep(MONITOR_PERIOD)
@@ -229,9 +188,7 @@ def _monitor():
                 )
 
 
-# ---------------------------------------------------------------------------
-# Graceful shutdown
-# ---------------------------------------------------------------------------
+
 def _shutdown():
     if _shutdown_flag.is_set():
         return
@@ -280,9 +237,7 @@ def _handle_sigint(sig, frame):
 signal.signal(signal.SIGINT, _handle_sigint)
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
+
 if __name__ == "__main__":
     _banner()
 

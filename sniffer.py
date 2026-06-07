@@ -1,26 +1,3 @@
-# ==============================================================================
-# sniffer.py  —  THE SENSOR  (Windows Native)
-# ==============================================================================
-# Captures INBOUND TCP packets on port 5000 using Scapy + Npcap.
-# Writes raw JSON metadata to packet_stream.tmp for parser.py to consume.
-#
-# REQUIREMENTS
-#   pip install scapy
-#   Npcap installed from https://npcap.com  (tick "WinPcap API-compatible mode")
-#   Run from an ADMINISTRATOR command prompt.
-#
-# FIXES APPLIED
-#   - Added window size capture (init_fwd_win_byts) from TCP header
-#   - Added IP options / TTL anomaly fields
-#   - Fixed LOCAL_IPS to also enumerate all interface addresses via Scapy
-#   - BPF filter corrected to capture on ALL interfaces, not just default
-#   - Lock acquire now writes the PID so stale-lock detection is more robust
-#   - SIGTERM handler added (main.py sends terminate(), not just SIGINT)
-#   - Buffer file is opened in binary-append then encoded — avoids \r\n on Windows
-#   - pkt_length now measures only the IP payload, not the Ethernet frame overhead
-#   - Added src_mac capture where available (Ethernet layer)
-# ==============================================================================
-
 import json
 import os
 import socket
@@ -29,9 +6,7 @@ import time
 import signal
 from datetime import datetime, timezone
 
-# ---------------------------------------------------------------------------
-# Dependency check
-# ---------------------------------------------------------------------------
+
 try:
     from scapy.all import sniff, IP, TCP, Ether, conf, get_if_list
 except ImportError:
@@ -39,13 +14,8 @@ except ImportError:
     print("         Run:  pip install scapy")
     sys.exit(1)
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
 TARGET_PORT = int(os.environ.get("TARGET_PORT", "5000"))
-# Port your web app listens on. Override with environment variable:
-#   set TARGET_PORT=80
-#   python main.py
+
 PACKET_LOG_FILE = os.environ.get("PACKET_LOG_FILE", "log.log")
 # Stores every captured packet JSON line for archive/review.
 BUFFER_FILE     = "packet_stream.tmp"
@@ -54,10 +24,7 @@ LOG_PREFIX      = "[SNIFFER]"
 LOCK_TIMEOUT    = 5.0
 STALE_LOCK_AGE  = 10.0
 
-# ---------------------------------------------------------------------------
-# Windows-native atomic lock-file (NTFS O_EXCL is atomic)
-# Writes the current PID into the lock so health-check can validate it.
-# ---------------------------------------------------------------------------
+
 def _acquire_lock(timeout: float = LOCK_TIMEOUT) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -85,10 +52,7 @@ def _release_lock():
         pass
 
 
-# ---------------------------------------------------------------------------
-# Discover ALL IPv4 addresses bound to this machine
-# Uses both socket and Scapy interface enumeration for maximum coverage.
-# ---------------------------------------------------------------------------
+
 def _get_local_ips() -> set:
     local = {"127.0.0.1", "0.0.0.0", "::1"}
     # Standard socket approach
@@ -118,9 +82,7 @@ def _get_local_ips() -> set:
 LOCAL_IPS = _get_local_ips()
 
 
-# ---------------------------------------------------------------------------
-# TCP flag decoder
-# ---------------------------------------------------------------------------
+
 def _decode_tcp_flags(flags_int: int) -> dict:
     return {
         "FIN": int(bool(flags_int & 0x01)),
@@ -134,9 +96,7 @@ def _decode_tcp_flags(flags_int: int) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Scapy packet callback
-# ---------------------------------------------------------------------------
+
 def packet_handler(pkt):
     """
     Called by Scapy for every packet that passes the BPF filter.
@@ -150,18 +110,13 @@ def packet_handler(pkt):
 
     src_ip = pkt[IP].src
     if src_ip in LOCAL_IPS:
-        return  # Outgoing / loopback — discard silently
+        return  
 
-    # FIX: measure the IP payload length (total IP length minus IP header),
-    # not the whole Ethernet frame, so it matches CIC-IDS2018 semantics.
-    ip_hdr_len  = pkt[IP].ihl * 4          # IHL is in 32-bit words
-    ip_total    = pkt[IP].len              # Total IP packet length
-    pkt_length  = max(ip_total, len(pkt[IP]))  # Fallback if .len is 0
-
-    # FIX: capture TCP window size for init_fwd_win_byts feature
+    ip_hdr_len  = pkt[IP].ihl * 4          
+    ip_total    = pkt[IP].len             
+    pkt_length  = max(ip_total, len(pkt[IP]))  
     tcp_window = int(pkt[TCP].window)
 
-    # Optional: MAC address if Ethernet layer is present
     src_mac = pkt[Ether].src if Ether in pkt else "00:00:00:00:00:00"
 
     record = {

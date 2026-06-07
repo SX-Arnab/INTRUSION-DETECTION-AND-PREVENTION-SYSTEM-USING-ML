@@ -1,37 +1,3 @@
-# ==============================================================================
-# engine.py  —  THE ML DEFENDER  (Windows Native)
-# ==============================================================================
-# Tails model_log.csv for new rows written by parser.py, scores each one
-# through the pre-trained IDS pipeline, blocks high-risk IPs via netsh,
-# and serves a live dashboard at http://localhost:8080 showing blocked IPs
-# with GeoIP country/city lookups.
-#
-# REQUIREMENTS
-#   pip install scikit-learn xgboost lightgbm numpy pandas requests
-#   ids_ips_production_pipeline.pkl  must exist in the working directory.
-#   Run from an ADMINISTRATOR command prompt  (netsh requires elevation).
-#
-# FIXES APPLIED
-#   - MODEL_FEATURES now includes the two Phase-4 engineered columns
-#     (fwd_bwd_packet_ratio, fwd_bwd_len_ratio) so scaler.transform() no
-#     longer raises "X has N features but scaler expects N+2" ValueError.
-#   - CSVTailer offset tracking fixed: was using len(new_data.encode()) on
-#     the already-decoded string which gave wrong byte offsets when any non-
-#     ASCII character appeared; now we seek() after the read to get the
-#     true file pointer position.
-#   - score_row now checks that len(vector) == len(feature_names) and
-#     raises a descriptive error on mismatch instead of silently producing
-#     a wrong-shape array.
-#   - block_ip returns False (not crashes) when not on Windows.
-#   - SIGTERM handler added so main.py can terminate engine cleanly.
-#   - DoS detection: per-IP packet-rate counter with a sliding 10-second
-#     window that auto-blocks IPs exceeding DOS_PPS_THRESHOLD packets/s
-#     EVEN when the model scores them as CLEAN (volumetric DoS evasion).
-#   - Live HTTP dashboard on port 8080 shows every blocked IP, the reason
-#     (ML or DoS rate), threat score, GeoIP location, and timestamp.
-#   - GeoIP location resolved via ip-api.com (free, no key required).
-# ==============================================================================
-
 import csv
 import io
 import os
@@ -48,19 +14,17 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import numpy as np
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+
 MODEL_FILE        = "ids_ips_production_pipeline.pkl"
 CSV_FILE          = "model_log.csv"
 CSV_LOCK_FILE     = "model_log.lock"
 AUDIT_LOG         = "block_audit.log"
 POLL_INTERVAL     = 0.5
 FAST_INTERVAL     = 0.05
-THREAT_THRESHOLD  = 0.85        # Block if predict_proba >= this value
-DOS_PPS_THRESHOLD = 100         # Block if > 100 packets/sec from one IP (DoS)
-DOS_WINDOW_SECS   = 10          # Sliding window for DoS rate calculation
-DASHBOARD_PORT    = 8080        # Web dashboard port
+THREAT_THRESHOLD  = 0.85        
+DOS_PPS_THRESHOLD = 100         
+DOS_WINDOW_SECS   = 10          
+DASHBOARD_PORT    = 8080        
 LOG_PREFIX        = "[ENGINE]"
 STALE_LOCK_AGE    = 10.0
 
@@ -94,15 +58,11 @@ MODEL_FEATURES = [
     "fwd_act_data_pkts", "fwd_seg_size_min",
     "active_mean", "active_std", "active_max", "active_min",
     "idle_mean",   "idle_std",   "idle_max",   "idle_min",
-    # FIX: Phase-4 engineered features MUST be included
     "fwd_bwd_packet_ratio",
     "fwd_bwd_len_ratio",
 ]
 
 
-# ---------------------------------------------------------------------------
-# Load the serialised pipeline artifact
-# ---------------------------------------------------------------------------
 def load_pipeline(path: str):
     if not os.path.exists(path):
         print(f"{LOG_PREFIX} FATAL: Model artifact '{path}' not found.")
@@ -122,9 +82,7 @@ def load_pipeline(path: str):
     return model, scaler, feature_names
 
 
-# ---------------------------------------------------------------------------
-# GeoIP lookup (ip-api.com — free, no API key, 45 req/min limit)
-# ---------------------------------------------------------------------------
+
 _geo_cache: dict = {}
 _geo_lock  = threading.Lock()
 
@@ -157,9 +115,7 @@ def _geoip_lookup(ip: str) -> dict:
     return result
 
 
-# ---------------------------------------------------------------------------
-# Blocked-IP registry (thread-safe)
-# ---------------------------------------------------------------------------
+
 _blocked_registry_lock = threading.Lock()
 _blocked_registry: list = []   # List of dicts: {ip, reason, score, geo, timestamp}
 _blocked_ips_set:  set  = set()  # For O(1) duplicate check
@@ -172,7 +128,6 @@ def _record_block(ip: str, reason: str, score: float):
             return
         _blocked_ips_set.add(ip)
 
-    # Resolve GeoIP in the background so we don't stall the main loop
     def _fetch_and_record():
         geo = _geoip_lookup(ip)
         entry = {
@@ -196,9 +151,7 @@ def _record_block(ip: str, reason: str, score: float):
     threading.Thread(target=_fetch_and_record, daemon=True).start()
 
 
-# ---------------------------------------------------------------------------
-# Windows Firewall blocking via netsh advfirewall
-# ---------------------------------------------------------------------------
+
 def block_ip(src_ip: str, reason: str, score: float) -> bool:
     """
     Adds a permanent inbound TCP block rule to the Windows Firewall.
@@ -272,10 +225,6 @@ def _write_audit(src_ip: str, rule_name: str, action: str, reason: str = ""):
         pass
 
 
-# ---------------------------------------------------------------------------
-# DoS rate detector — sliding window per-IP packet counter
-# ---------------------------------------------------------------------------
-# Maps src_ip → deque of timestamps (one entry per packet seen)
 _dos_counters: dict = collections.defaultdict(collections.deque)
 _dos_lock = threading.Lock()
 
@@ -304,9 +253,7 @@ def _check_dos(src_ip: str) -> tuple:
     pps = count / DOS_WINDOW_SECS
     return pps >= DOS_PPS_THRESHOLD, pps
 
-# ---------------------------------------------------------------------------
-# Live dashboard HTTP server
-# ---------------------------------------------------------------------------
+
 _DASHBOARD_HTML_TEMPLATE = """\
 <!DOCTYPE html>
 <html lang="en">
@@ -460,9 +407,7 @@ def _start_dashboard():
     print(f"{LOG_PREFIX} Dashboard running at http://localhost:{DASHBOARD_PORT}")
 
 
-# ---------------------------------------------------------------------------
-# CSVTailer — race-condition-safe file tail for Windows
-# ---------------------------------------------------------------------------
+
 class CSVTailer:
     def __init__(self, path: str):
         self.path   = path
@@ -522,9 +467,7 @@ class CSVTailer:
         return rows
 
 
-# ---------------------------------------------------------------------------
-# Inference
-# ---------------------------------------------------------------------------
+
 def score_row(row: dict, model, scaler, feature_names: list):
     src_ip = row.get("src_ip", "0.0.0.0").strip()
 
@@ -551,9 +494,7 @@ def score_row(row: dict, model, scaler, feature_names: list):
     return prob, src_ip
 
 
-# ---------------------------------------------------------------------------
-# Graceful shutdown
-# ---------------------------------------------------------------------------
+
 _running = True
 
 
@@ -577,7 +518,6 @@ if __name__ == "__main__":
 
     model, scaler, feature_names = load_pipeline(MODEL_FILE)
 
-    # Reconcile saved feature signature with our canonical list
     if set(feature_names) == set(MODEL_FEATURES):
         feature_names = MODEL_FEATURES
     else:
